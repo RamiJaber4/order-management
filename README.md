@@ -1,5 +1,16 @@
 # Order Management
 
+## Continuous integration
+
+`.github/workflows/tests.yml` runs on pushes, pull requests, and manual dispatch.
+It installs Python 3.13 and the test dependencies, starts a disposable PostgreSQL
+16 service, waits for database readiness, and runs `python -m pytest -q`.
+The tests run Alembic migrations in randomly named test databases. No production
+database credentials, repository secrets, or committed `.env` file are needed.
+After pushing the workflow, open the repository's **Actions** tab and select
+**Tests** to see results. Manual **Run workflow** is available once the workflow
+is on the default branch. This workflow tests code; it does not deploy it.
+
 This project manages six PostgreSQL tables using SQLAlchemy 2.x and Alembic.
 `models.py` contains the mappings; `base.py` defines the shared ORM base.
 `schemas.py` contains Pydantic request and response models. Routes declare
