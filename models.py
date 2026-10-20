@@ -9,7 +9,6 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
 from sqlalchemy import (
     CheckConstraint, Computed, DateTime, ForeignKey, Index,
     Integer, Numeric, String, Text, UniqueConstraint, text,
@@ -19,23 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from base import Base
 
-class CustomerCreate(BaseModel):
-    name: str
-    email: str
-
-class ProductCreate(BaseModel):
-    name: str
-    unit_price: int = Field(gt=0)
-    stock: int = Field(ge=0)
-
-class OrderCreate(BaseModel):
-    customer_id: int = Field(gt=0)
-    p_id: int = Field(gt=0)
-    quantity: int = Field(gt=0)
-    
-
 # PostgreSQL validates strings. The connection search_path resolves the type.
-from sqlalchemy.dialects.postgresql import ENUM
 
 payment_way_type = ENUM(
     "cash",

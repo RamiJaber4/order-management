@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 load_dotenv()
 
-from base import Base
-from models import Customer, CustomerCreate, ProductCreate,OrderItem, Product, Order, OrderCreate
+from models import Customer, OrderItem, Product, Order
+from schemas import CustomerCreate, ProductCreate, OrderCreate
 
 
 # Engine construction is lazy: a connection opens only when needed.

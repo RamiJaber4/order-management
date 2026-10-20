@@ -2,6 +2,9 @@
 
 This project manages six PostgreSQL tables using SQLAlchemy 2.x and Alembic.
 `models.py` contains the mappings; `base.py` defines the shared ORM base.
+`schemas.py` contains Pydantic request and response models. Routes declare
+`response_model` to validate and expose only the documented response fields.
+ORM-backed responses use `from_attributes=True`; relationships are not exposed.
 `db.py` provides the engine, session factory, and a FastAPI session dependency.
 
 ## Setup
@@ -130,8 +133,9 @@ pending changes; call `db.flush()` if you need generated IDs before committing.
 
 For scripts, use `with SessionLocal() as db:` and explicitly commit writes.
 
-ORM models describe database rows. `CustomerCreate` and `ProductCreate` are
-separate Pydantic request models. `main.py` exposes POST `/customers`, POST
+ORM models describe database rows. `CustomerCreate`, `ProductCreate`, and
+`OrderCreate` live in `schemas.py` as Pydantic request models.
+`main.py` exposes POST `/customers`, POST
 `/products`, and GET `/products`, using one database session per request.
 The create helpers convert request models into ORM instances before saving.
 
