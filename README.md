@@ -51,7 +51,8 @@ This project manages six PostgreSQL tables using SQLAlchemy 2.x and Alembic.
 `models.py` contains the mappings; `base.py` defines the shared ORM base.
 `schemas.py` contains Pydantic request and response models. Routes declare
 `response_model` to validate and expose only the documented response fields.
-ORM-backed responses use `from_attributes=True`; relationships are not exposed.
+ORM-backed responses use `from_attributes=True`. Order responses include their
+items; customer/payment/product ORM relationships are not exposed.
 `db.py` provides the engine, session factory, and a FastAPI session dependency.
 
 ## Setup
@@ -189,6 +190,26 @@ The create helpers convert request models into ORM instances before saving.
 Start the API with `.\.venv\Scripts\python -m uvicorn main:app --reload`.
 
 ## Order atomicity and integration tests
+
+`POST /orders` accepts one or more distinct products using the following shape
+(replaces the old top-level `p_id`/`quantity` request):
+
+```json
+{
+  "customer_id": 1,
+  "items": [
+    {"product_id": 3, "quantity": 2},
+    {"product_id": 7, "quantity": 1}
+  ]
+}
+```
+
+Empty baskets, duplicate products, and invalid IDs/quantities return 422.
+A missing product returns 404; insufficient stock returns 409. Either rejects
+the entire order without saving items or deducting any stock. All product rows
+are locked in ascending ID order, regardless of their order in the request.
+Prices are read from the database, not supplied by the caller. GET order
+responses include each item's product ID, quantity, price, and computed total.
 
 Routes delegate database operations to `db.py` and contain no SQL. The order
 service owns one transaction for customer/product validation, stock deduction,

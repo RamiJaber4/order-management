@@ -5,7 +5,7 @@ def test_product_response_has_only_public_fields(client, seeded):
     response = client.get("/products")
     assert response.status_code == 200
     assert response.json() == [{
-        "id": seeded["p_id"], "name": "Test product",
+        "id": seeded["items"][0]["product_id"], "name": "Test product",
         "category_name": None, "unit_price": 25, "stock": 5,
     }]
 
@@ -18,7 +18,8 @@ def test_order_responses_serialize_orm_rows_and_nullable_fields(client, seeded):
     response = client.get(f"/orders/{order_id}")
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"id", "customer_id", "order_date", "notes"}
+    assert set(body) == {"id", "customer_id", "order_date", "notes", "items"}
+    assert body["items"] == [{"product_id": seeded["items"][0]["product_id"], "quantity": 2, "price": 25, "total_price": 50}]
     assert body["id"] == order_id
     assert body["customer_id"] == seeded["customer_id"]
     assert body["notes"] is None

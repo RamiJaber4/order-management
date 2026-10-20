@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import Session, sessionmaker, selectinload
 
 load_dotenv()
 
@@ -60,7 +60,7 @@ def list_products(limit:int, offset: int, session: Session):
     return session.scalars(select(Product).order_by(Product.id).limit(limit).offset(offset)).all()
 
 def get_order_by_id(id : int, session: Session):
-    stm = select(Order).where(Order.id == id)
+    stm = select(Order).options(selectinload(Order.items)).where(Order.id == id)
     return session.scalars(stm).one_or_none()
 
 def get_customer_order(
@@ -71,6 +71,7 @@ def get_customer_order(
 ):
     stmt = (
         select(Order)
+        .options(selectinload(Order.items))
         .where(Order.customer_id == id)
         .order_by(Order.id)
         .limit(limit)
@@ -87,26 +88,37 @@ def create_order(
         with session.begin():
             if session.get(Customer, order.customer_id) is None:
                 raise HTTPException(status_code=404, detail="Customer not found")
-            product = session.scalar(
-                select(Product).where(Product.id == order.p_id).with_for_update()
-            )
-            if product is None:
-                raise HTTPException(status_code=404, detail="Product not found")
-            if product.unit_price is None or product.unit_price <= 0:
-                raise HTTPException(status_code=409, detail="Product has no valid price")
-            if product.stock is None or product.stock < order.quantity:
-                raise HTTPException(status_code=409, detail="Insufficient stock")
+            # Acquire shared product locks in the same order for every request.
+            # This reduces deadlocks when baskets list products in different orders.
+            products = {
+                product.id: product for product in session.scalars(
+                    select(Product)
+                    .where(Product.id.in_([item.product_id for item in order.items]))
+                    .order_by(Product.id)
+                    .with_for_update()
+                )
+            }
+            for item in order.items:
+                product = products.get(item.product_id)
+                if product is None:
+                    raise HTTPException(status_code=404, detail="Product not found")
+                if product.unit_price is None or product.unit_price <= 0:
+                    raise HTTPException(status_code=409, detail="Product has no valid price")
+                if product.stock is None or product.stock < item.quantity:
+                    raise HTTPException(status_code=409, detail="Insufficient stock")
 
-            product.stock -= order.quantity
             new_order = Order(customer_id=order.customer_id)
             session.add(new_order)
-            session.flush()  # Persist the order and stock inside the same transaction.
-            session.add(OrderItem(
-                order_id=new_order.id,
-                product_id=product.id,
-                quantity=order.quantity,
-                price=product.unit_price,
-            ))
+            for item in order.items:
+                products[item.product_id].stock -= item.quantity
+            session.flush()  # Persist order and all stock changes before inserting items.
+            for item in order.items:
+                session.add(OrderItem(
+                    order_id=new_order.id,
+                    product_id=item.product_id,
+                    quantity=item.quantity,
+                    price=products[item.product_id].unit_price,
+                ))
     except Exception:
         session.rollback()
         raise

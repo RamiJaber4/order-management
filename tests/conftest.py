@@ -63,7 +63,7 @@ def seeded(pg_engine):
         product = Product(name="Test product", unit_price=25, stock=5)
         session.add_all([customer, product])
         session.commit()
-        return {"customer_id": customer.id, "p_id": product.id, "quantity": 2}
+        return {"customer_id": customer.id, "items": [{"product_id": product.id, "quantity": 2}]}
 
 
 @pytest.fixture
