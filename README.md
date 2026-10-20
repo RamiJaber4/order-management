@@ -1,5 +1,41 @@
 # Order Management
 
+## Run with Docker
+
+Install Docker with Compose support (Docker Desktop on Windows, using Linux
+containers), then run from the project root:
+
+```powershell
+docker compose up --build -d --wait
+```
+
+Open http://localhost:8000/docs to try the API. Compose runs two containers:
+`api` (FastAPI on Python 3.13) and `db` (PostgreSQL 16). The API waits for database
+readiness, runs `alembic upgrade head`, and starts Uvicorn only if migrations
+succeed. The API healthcheck also verifies a database-backed endpoint.
+
+No `.env` setup is required for this local stack. Compose supplies a separate
+database URL using the hostname `db`; it does not connect to your existing
+database. The bundled password is for local development. The API is published
+only on `127.0.0.1:8000`, and PostgreSQL has no published host port. For deployment,
+supply private credentials and deployment-specific networking.
+
+The `postgres_data` named volume preserves data when containers are recreated.
+Normal commands:
+
+```powershell
+docker compose ps
+docker compose logs -f api
+docker compose down
+# Start again, reusing the saved database:
+docker compose up -d --wait
+```
+
+`docker compose down` preserves the volume. Adding `--volumes` deletes the
+database data. For code changes, rebuild with `docker compose up --build -d --wait`.
+`.dockerignore` excludes local secrets, virtual environments, and caches from
+the build context. The API image runs as an unprivileged user.
+
 ## Continuous integration
 
 `.github/workflows/tests.yml` runs on pushes, pull requests, and manual dispatch.
