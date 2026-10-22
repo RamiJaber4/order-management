@@ -11,7 +11,7 @@ def test_product_response_has_only_public_fields(client, seeded):
 
 
 def test_order_responses_serialize_orm_rows_and_nullable_fields(client, seeded):
-    created = client.post("/orders", json=seeded)
+    created = client.post("/orders", json={"items": seeded["items"]})
     assert created.status_code == 201
     assert set(created.json()) == {"msg", "order_id"}
     order_id = created.json()["order_id"]

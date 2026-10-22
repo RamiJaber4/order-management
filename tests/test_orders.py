@@ -20,7 +20,7 @@ def persisted_state(engine, product_id):
 
 
 def test_success_commits_order_item_and_stock(client, pg_engine, seeded):
-    response = client.post("/orders", json=seeded)
+    response = client.post("/orders", json={"items": seeded["items"]})
     assert response.status_code == 201
     assert persisted_state(pg_engine, seeded["items"][0]["product_id"]) == (1, 1, 3)
     with Session(pg_engine) as session:
@@ -33,16 +33,16 @@ def test_success_commits_order_item_and_stock(client, pg_engine, seeded):
 
 
 @pytest.mark.parametrize("change,status,detail", [
-    ({"customer_id": 2147483647}, 404, "Customer not found"),
+    ({"customer_id": 2147483647}, 422, None),
     ({"items": [{"product_id": 2147483647, "quantity": 2}]}, 404, "Product not found"),
     ({"quantity": 6}, 409, "Insufficient stock"),
     ({"quantity": 0}, 422, None),
     ({"quantity": -1}, 422, None),
 ])
 def test_rejected_order_leaves_no_partial_data(client, pg_engine, seeded, change, status, detail):
-    payload = {**seeded, **change}
+    payload = {"items": seeded["items"], **change}
     if "quantity" in change:
-        payload = {**seeded, "items": [{**seeded["items"][0], "quantity": change["quantity"]}]}
+        payload = {"items": [{**seeded["items"][0], "quantity": change["quantity"]}]}
     response = client.post("/orders", json=payload)
     assert response.status_code == status
     if detail:
@@ -68,7 +68,7 @@ def test_database_failure_rolls_back_flushed_order_and_stock(client, pg_engine, 
             "ALTER TABLE ecommerce.order_items ADD CONSTRAINT test_item_failure CHECK (quantity < 2)"
         ))
     try:
-        response = client.post("/orders", json=seeded)
+        response = client.post("/orders", json={"items": seeded["items"]})
         assert response.status_code == 500
         assert persisted_state(pg_engine, seeded["items"][0]["product_id"]) == (0, 0, 5)
     finally:
@@ -77,7 +77,7 @@ def test_database_failure_rolls_back_flushed_order_and_stock(client, pg_engine, 
                 "ALTER TABLE ecommerce.order_items DROP CONSTRAINT test_item_failure"
             ))
     # A subsequent request still succeeds after the rollback.
-    assert client.post("/orders", json=seeded).status_code == 201
+    assert client.post("/orders", json={"items": seeded["items"]}).status_code == 201
     assert persisted_state(pg_engine, seeded["items"][0]["product_id"]) == (1, 1, 3)
 
 
@@ -89,7 +89,7 @@ def test_concurrent_orders_cannot_oversell(client, pg_engine, seeded):
 
     def place_order():
         barrier.wait(timeout=10)
-        return client.post("/orders", json={**seeded, "items": [{**seeded["items"][0], "quantity": 1}]}).status_code
+        return client.post("/orders", json={"items": [{**seeded["items"][0], "quantity": 1}]}).status_code
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(place_order) for _ in range(2)]

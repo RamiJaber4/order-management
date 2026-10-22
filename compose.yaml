@@ -7,6 +7,7 @@ services:
       # Local development credentials for the isolated Compose database.
       # Explicitly overrides any DATABASE_URL in the host's .env.
       DATABASE_URL: postgresql+psycopg://postgres:local_dev_password@db:5432/ecommerce_db
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to a random secret of at least 32 bytes}
     depends_on:
       db:
         condition: service_healthy

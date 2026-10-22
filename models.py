@@ -42,6 +42,7 @@ class Customer(Base):
     __tablename__ = "customers"
     __table_args__ = (
         UniqueConstraint("email", name="customers_email_key"),
+        CheckConstraint("role IN ('customer', 'admin')", name="customers_role_check"),
         {"schema": "ecommerce"},
     )
 
@@ -51,6 +52,9 @@ class Customer(Base):
     )
     name: Mapped[str] = mapped_column(Text)
     email: Mapped[str] = mapped_column(Text)
+    # Legacy customers cannot log in until a password is provisioned securely.
+    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role: Mapped[str] = mapped_column(String(20), server_default=text("'customer'"))
     orders: Mapped[list[Order]] = relationship(
         back_populates="customer", passive_deletes="all"
     )

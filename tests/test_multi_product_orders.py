@@ -14,7 +14,7 @@ def basket(pg_engine, seeded):
         product = Product(name="Second product", unit_price=40, stock=4)
         session.add(product)
         session.commit()
-        return {**seeded, "items": [*seeded["items"], {"product_id": product.id, "quantity": 1}]}
+        return {"items": [*seeded["items"], {"product_id": product.id, "quantity": 1}]}
 
 
 def assert_unchanged(engine, basket):
@@ -25,7 +25,7 @@ def assert_unchanged(engine, basket):
 
 
 def test_multiple_products_share_one_order(client, pg_engine, basket):
-    response = client.post("/orders", json=basket)
+    response = client.post("/orders", json={"items": basket["items"]})
     assert response.status_code == 201
     order_id = response.json()["order_id"]
     with Session(pg_engine) as session:
@@ -45,14 +45,14 @@ def test_multiple_products_share_one_order(client, pg_engine, basket):
 def test_one_unavailable_product_rejects_entire_order(client, pg_engine, basket, failure, status):
     second = {**basket["items"][1]}
     second.update({"product_id": 2147483647} if failure == "missing" else {"quantity": 5})
-    response = client.post("/orders", json={**basket, "items": [basket["items"][0], second]})
+    response = client.post("/orders", json={"items": [basket["items"][0], second]})
     assert response.status_code == status
     assert_unchanged(pg_engine, basket)
 
 
 @pytest.mark.parametrize("invalid", ["empty", "duplicate", "missing_items", "invalid_id", "invalid_quantity"])
 def test_invalid_basket_is_rejected_before_writes(client, pg_engine, basket, invalid):
-    payload = {**basket}
+    payload = {"items": basket["items"]}
     if invalid == "empty":
         payload["items"] = []
     elif invalid == "duplicate":
@@ -73,12 +73,12 @@ def test_item_insert_failure_rolls_back_every_product(client, pg_engine, basket)
             f"ALTER TABLE ecommerce.order_items ADD CONSTRAINT test_second_item_failure CHECK (product_id <> {second_id})"
         ))
     try:
-        assert client.post("/orders", json=basket).status_code == 500
+        assert client.post("/orders", json={"items": basket["items"]}).status_code == 500
         assert_unchanged(pg_engine, basket)
     finally:
         with pg_engine.begin() as connection:
             connection.execute(text("ALTER TABLE ecommerce.order_items DROP CONSTRAINT test_second_item_failure"))
-    assert client.post("/orders", json=basket).status_code == 201
+    assert client.post("/orders", json={"items": basket["items"]}).status_code == 201
 
 
 def test_opposite_basket_order_cannot_oversell_or_deadlock(client, pg_engine, basket):
@@ -91,7 +91,7 @@ def test_opposite_basket_order_cannot_oversell_or_deadlock(client, pg_engine, ba
 
     def place_order(reverse):
         barrier.wait(timeout=10)
-        return client.post("/orders", json={**basket, "items": items[::-1] if reverse else items}).status_code
+        return client.post("/orders", json={"items": items[::-1] if reverse else items}).status_code
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(place_order, reverse) for reverse in (False, True)]

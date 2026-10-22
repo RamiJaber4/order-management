@@ -5,6 +5,14 @@ from sqlalchemy.orm import Session
 from models import Customer, Product
 
 
+@pytest.fixture(autouse=True)
+def catalog_admin(pg_engine, seeded):
+    with Session(pg_engine) as session:
+        session.get(Customer, seeded["customer_id"]).role = "admin"
+        session.commit()
+
+
+
 def test_created_product_can_be_ordered(client, pg_engine, seeded):
     assert client.post("/products", json={
         "name": "New product", "unit_price": 40, "stock": 3,
@@ -13,7 +21,7 @@ def test_created_product_can_be_ordered(client, pg_engine, seeded):
         product = session.scalar(select(Product).where(Product.name == "New product"))
         product_id = product.id
         assert (product.unit_price, product.stock) == (40, 3)
-    response = client.post("/orders", json={**seeded, "items": [{"product_id": product_id, "quantity": 2}]})
+    response = client.post("/orders", json={"items": [{"product_id": product_id, "quantity": 2}]})
     assert response.status_code == 201
     with Session(pg_engine) as session:
         assert session.get(Product, product_id).stock == 1
@@ -37,16 +45,16 @@ def test_zero_stock_product_is_valid_but_cannot_be_ordered(client, pg_engine, se
     }).status_code == 200
     with Session(pg_engine) as session:
         product_id = session.scalar(select(Product.id).where(Product.name == "Sold out"))
-    assert client.post("/orders", json={**seeded, "items": [{"product_id": product_id, "quantity": 2}]}).status_code == 409
+    assert client.post("/orders", json={"items": [{"product_id": product_id, "quantity": 2}]}).status_code == 409
 
 
 def test_duplicate_email_returns_conflict_and_next_request_succeeds(client, pg_engine, seeded):
-    response = client.post("/customers", json={"name": "Duplicate", "email": "customer@example.test"})
+    response = client.post("/auth/register", json={"name": "Duplicate", "email": "customer@example.com", "password": "test-password-12345"})
     assert response.status_code == 409
     assert response.json()["detail"] == "Email already exists"
     with Session(pg_engine) as session:
         assert session.scalar(select(func.count()).select_from(Customer)) == 1
-    assert client.post("/customers", json={"name": "Next", "email": "next@example.test"}).status_code == 200
+    assert client.post("/auth/register", json={"name": "Next", "email": "next@example.com", "password": "test-password-12345"}).status_code == 201
 
 
 def test_product_offset_returns_next_product(client, pg_engine, seeded):

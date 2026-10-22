@@ -3,6 +3,9 @@ import os
 from uuid import uuid4
 from pathlib import Path
 
+# Test-only signing secret; configured before the application is imported.
+os.environ["JWT_SECRET"] = "integration-test-secret-never-use-in-deployment-12345"
+
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -14,6 +17,10 @@ from sqlalchemy.orm import Session
 from db import get_db
 from main import app
 from models import Customer, Product
+from auth import password_hasher, create_access_token
+
+TEST_PASSWORD = "test-password-12345"
+TEST_HASH = password_hasher.hash(TEST_PASSWORD)
 
 
 def migration_config(connection):
@@ -59,7 +66,7 @@ def seeded(pg_engine):
             "ecommerce.products, ecommerce.customers, ecommerce.categories CASCADE"
         ))
     with Session(pg_engine) as session:
-        customer = Customer(name="Test customer", email="customer@example.test")
+        customer = Customer(name="Test customer", email="customer@example.com", password_hash=TEST_HASH)
         product = Product(name="Test product", unit_price=25, stock=5)
         session.add_all([customer, product])
         session.commit()
@@ -67,7 +74,7 @@ def seeded(pg_engine):
 
 
 @pytest.fixture
-def client(pg_engine):
+def raw_client(pg_engine):
     def test_db():
         with Session(pg_engine, autoflush=False, expire_on_commit=False) as session:
             try:
@@ -82,3 +89,10 @@ def client(pg_engine):
             yield test_client
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+def client(raw_client, seeded):
+    """Existing order tests exercise authentication with a real signed token."""
+    raw_client.headers["Authorization"] = "Bearer " + create_access_token(seeded["customer_id"])
+    return raw_client

@@ -10,7 +10,7 @@ COPY requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt \
     && useradd --create-home --uid 10001 appuser
 
-COPY main.py db.py models.py schemas.py base.py alembic.ini ./
+COPY main.py db.py models.py schemas.py base.py auth.py manage.py alembic.ini ./
 COPY alembic/ ./alembic/
 
 USER appuser

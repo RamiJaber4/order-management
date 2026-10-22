@@ -3,7 +3,14 @@
 ## Run with Docker
 
 Install Docker with Compose support (Docker Desktop on Windows, using Linux
-containers), then run from the project root:
+containers). First add a random JWT signing secret to `.env` (preserve any
+existing DATABASE_URL). Generate one with:
+
+```powershell
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Save the output as `JWT_SECRET=<generated value>` in `.env`, then run from the project root:
 
 ```powershell
 docker compose up --build -d --wait
@@ -14,7 +21,7 @@ Open http://localhost:8000/docs to try the API. Compose runs two containers:
 readiness, runs `alembic upgrade head`, and starts Uvicorn only if migrations
 succeed. The API healthcheck also verifies a database-backed endpoint.
 
-No `.env` setup is required for this local stack. Compose supplies a separate
+Compose requires `JWT_SECRET` in `.env` or the shell environment. It supplies a separate
 database URL using the hostname `db`; it does not connect to your existing
 database. The bundled password is for local development. The API is published
 only on `127.0.0.1:8000`, and PostgreSQL has no published host port. For deployment,
@@ -183,8 +190,7 @@ For scripts, use `with SessionLocal() as db:` and explicitly commit writes.
 
 ORM models describe database rows. `CustomerCreate`, `ProductCreate`, and
 `OrderCreate` live in `schemas.py` as Pydantic request models.
-`main.py` exposes POST `/customers`, POST
-`/products`, and GET `/products`, using one database session per request.
+`main.py` exposes registration/login, products, and orders, using one database session per request.
 The create helpers convert request models into ORM instances before saving.
 
 Start the API with `.\.venv\Scripts\python -m uvicorn main:app --reload`.
@@ -192,11 +198,10 @@ Start the API with `.\.venv\Scripts\python -m uvicorn main:app --reload`.
 ## Order atomicity and integration tests
 
 `POST /orders` accepts one or more distinct products using the following shape
-(replaces the old top-level `p_id`/`quantity` request):
+(requires a bearer token; the owner comes from the authenticated account):
 
 ```json
 {
-  "customer_id": 1,
   "items": [
     {"product_id": 3, "quantity": 2},
     {"product_id": 7, "quantity": 1}
@@ -211,11 +216,10 @@ are locked in ascending ID order, regardless of their order in the request.
 Prices are read from the database, not supplied by the caller. GET order
 responses include each item's product ID, quantity, price, and computed total.
 
-Routes delegate database operations to `db.py` and contain no SQL. The order
+Order routes delegate database operations to `db.py`. The order
 service owns one transaction for customer/product validation, stock deduction,
 order creation, and item creation. It locks the product with `SELECT FOR UPDATE`
-until commit, so concurrent orders cannot consume the same stock. Missing or
-insufficient stock returns 409. Any failure rolls back the complete transaction.
+until commit, so concurrent orders cannot consume the same stock. A missing product returns 404; insufficient stock returns 409. Any failure rolls back the complete transaction.
 
 Run the API integration tests against a PostgreSQL test server:
 
@@ -231,7 +235,7 @@ database afterward. They do not modify tables in the database named in the URL.
 Use a dedicated test server/account. Missing configuration fails explicitly;
 tests never fall back to the application database or SQLite.
 
-Coverage includes successful commit, missing customer/product, insufficient and
+Coverage includes successful commit, rejected client-supplied ownership, missing products, insufficient and
 invalid quantities, concurrent requests for the final
 unit, and a PostgreSQL constraint failure when inserting the item after the
 order and stock have been flushed. Persisted state is checked from fresh
@@ -242,3 +246,76 @@ when adding and removing `orders.notes`.
 They also verify NOT NULL enforcement, safe rollback when legacy products
 contain missing values, product input validation and ordering newly created
 products, duplicate email handling, and product pagination.
+
+
+## JWT authentication and permissions
+
+`POST /auth/register` replaces the old unauthenticated `POST /customers` route.
+Send `name`, `email`, and a password of 12?128 characters. Registration returns
+201, duplicate email returns 409, and unsupported fields (including `role`) return
+422. Email validation normalizes the domain; the local part remains case-sensitive,
+including for existing customers. No bulk email rewriting is performed.
+
+```json
+{"name": "Rami", "email": "rami@example.com", "password": "my-long-password-123"}
+```
+
+`POST /auth/login` accepts JSON with `email` and `password`; it returns
+`access_token` and `token_type: "bearer"`. Invalid credentials return a generic
+401. Paste the token into **Authorize** in `/docs`, or send this header:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+`GET /auth/me` returns only the current account's id, name, email, and role.
+Passwords are hashed with Argon2; hashes are never returned. JWTs contain only
+`sub` (customer ID), `iat`, and `exp`, and expire after 15 minutes. The signing
+algorithm is fixed to HS256 and the secret must be at least 32 bytes. Generate
+it randomly; there is no default key. Tests inject a separate test-only key.
+
+| Operation | Access |
+| --- | --- |
+| Register/login | Public |
+| GET /products | Public |
+| POST /products | Admin |
+| POST /orders | Logged-in customer, including admins; always owns the new order |
+| GET /orders/{id} | Owner or admin |
+| GET /customers/{id}/orders | Matching customer or admin |
+| GET /auth/me | Logged-in customer |
+
+`OrderCreate` no longer accepts `customer_id`; sending it returns 422. Customer
+ownership is taken from the verified account. Roles are loaded from the database
+on every protected request, so promotion/demotion applies to the next request
+without issuing another token. Existing customers retain their data and receive
+role `customer`, but their password hash remains NULL: they cannot log in until
+credentials are provisioned through a trusted process. Password recovery and
+legacy account activation are not implemented.
+
+To grant the first admin role, register that account normally, then use the
+trusted operator command (there is no public role-change endpoint):
+
+```powershell
+# Docker:
+docker compose exec api python manage.py promote-admin rami@example.com
+# Local environment:
+.\.venv\Scripts\python manage.py promote-admin rami@example.com
+```
+
+To protect a new route, add `customer: Customer = Depends(get_current_customer)`.
+For admin-only routes use `admin: Customer = Depends(require_admin)` instead.
+For customer-owned data also call `require_customer_access(customer, owner_id)`
+before returning or changing it. Missing/invalid tokens return 401; insufficient
+permissions return 403. Authentication reads and order writes share the same
+request transaction; the order service commits or rolls back all stock/item changes.
+
+This is the access-token foundation: there are no refresh tokens or server-side
+logout/revocation yet. Client logout discards its token; a copied token remains
+valid until expiry. Before exposing the service publicly, configure HTTPS and
+login/registration rate limiting at the gateway or application layer. Never log
+passwords or bearer tokens. Token persistence in a browser must be designed with
+the frontend; no browser storage mechanism is selected here.
+
+The test suite checks real signed tokens, registration/hash storage, generic
+login failures, legacy accounts, token expiry/tampering, ownership, role changes,
+response privacy, and the existing transaction/concurrency/migration behavior.

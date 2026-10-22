@@ -21,10 +21,13 @@ def test_upgrade_downgrade_and_existing_customer_data(pg_engine):
         connection.execute(text("ALTER TABLE ecommerce.customers ADD COLUMN phone varchar(20)"))
         connection.execute(text(
             "INSERT INTO ecommerce.customers (name, email, phone) "
-            "VALUES ('Existing customer', 'existing@example.test', '12345')"
+            "VALUES ('Existing customer', 'existing@example.com', '12345')"
         ))
         command.upgrade(config, "head")
         assert connection.execute(text("SELECT phone FROM ecommerce.customers")).scalar_one() == "12345"
+        assert connection.execute(text(
+            "SELECT password_hash, role FROM ecommerce.customers"
+        )).one() == (None, "customer")
         assert "notes" in {c["name"] for c in inspect(connection).get_columns("orders", schema="ecommerce")}
         command.downgrade(config, "0001_initial")
         assert connection.execute(text("SELECT phone FROM ecommerce.customers")).scalar_one() == "12345"
