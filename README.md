@@ -2,44 +2,67 @@
 
 ## Run with Docker
 
+The local development and test environments are explicitly separated:
+
+| Environment | Swagger | Database | Docker service |
+| --- | --- | --- | --- |
+| Development | http://localhost:8000/docs | Existing host PostgreSQL at port 5433 | `api` |
+| Test | http://localhost:8001/docs | Existing Docker PostgreSQL volume | `api-test` |
+
 Install Docker with Compose support (Docker Desktop on Windows, using Linux
-containers). First add a random JWT signing secret to `.env` (preserve any
-existing DATABASE_URL). Generate one with:
+containers). Keep `.env` pointing to the original local development database.
+If setting up from scratch, generate a JWT signing secret with:
 
 ```powershell
 python -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Save the output as `JWT_SECRET=<generated value>` in `.env`, then run from the project root:
+Save the output as `JWT_SECRET=<generated value>` in `.env`. Create the private
+Docker environment files once (existing files are never overwritten):
+
+```powershell
+.\.venv\Scripts\python scripts/setup_environments.py
+```
+
+Start development from the project root (host PostgreSQL must be running):
 
 ```powershell
 docker compose up --build -d --wait
 ```
 
-Open http://localhost:8000/docs to try the API. Compose runs two containers:
-`api` (FastAPI on Python 3.13) and `db` (PostgreSQL 16). The API waits for database
-readiness, runs `alembic upgrade head`, and starts Uvicorn only if migrations
-succeed. The API healthcheck also verifies a database-backed endpoint.
+Development reads `.env.development`: its database hostname is
+`host.docker.internal`, which reaches the Windows host from the container.
+Local Python/Alembic commands still use `.env` and `127.0.0.1:5433`.
+These are two paths to the same database. Development does **not** run migrations
+automatically. Back up, inspect data compatibility, then run migrations explicitly.
 
-Compose requires `JWT_SECRET` in `.env` or the shell environment. It supplies a separate
-database URL using the hostname `db`; it does not connect to your existing
-database. The bundled password is for local development. The API is published
-only on `127.0.0.1:8000`, and PostgreSQL has no published host port. For deployment,
-supply private credentials and deployment-specific networking.
+Start both development and test:
 
-The `postgres_data` named volume preserves data when containers are recreated.
+```powershell
+docker compose --profile test up --build -d --wait
+```
+
+Test reads `.env.test`, uses its own JWT secret and database, and applies migrations
+at startup. PostgreSQL has no published host port. The existing external volume
+`backend-improve_postgres_data` is retained; a fresh machine must create that empty
+volume using `docker volume create backend-improve_postgres_data` first.
+The bundled database password is only for this local test setup.
+
+Check identity via `/health` and the Swagger title. Both APIs are loopback-only.
 Normal commands:
 
 ```powershell
 docker compose ps
 docker compose logs -f api
-docker compose down
+docker compose --profile test stop
 # Start again, reusing the saved database:
 docker compose up -d --wait
 ```
 
-`docker compose down` preserves the volume. Adding `--volumes` deletes the
-database data. For code changes, rebuild with `docker compose up --build -d --wait`.
+`stop` preserves containers and data. `build` builds application images;
+`up --build` also recreates the running application when needed. The external
+database volume is not part of the image and is not removed by Compose `down`.
+Do not delete the volume in Docker Desktop. The original host database is separate.
 `.dockerignore` excludes local secrets, virtual environments, and caches from
 the build context. The API image runs as an unprivileged user.
 

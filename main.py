@@ -1,3 +1,5 @@
+import os
+
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -15,7 +17,14 @@ from schemas import (
     LoginRequest, TokenResponse, CustomerResponse,
 )
 
-app = FastAPI()
+APP_ENV = os.getenv("APP_ENV", "development")
+app = FastAPI(title=f"Order Management — {APP_ENV}")
+
+
+@app.get('/health', tags=['Environment'])
+def health(session: Session = Depends(get_db)):
+    session.execute(select(1))
+    return {"status": "ok", "environment": APP_ENV}
 
 
 @app.post('/auth/register', status_code=201, response_model=MessageResponse)

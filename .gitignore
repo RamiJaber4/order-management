@@ -1,4 +1,8 @@
 .env
+.env.*
+!.env.example
+backups/
+docs/environments-ar.md
 .venv/
 __pycache__/
 *.py[cod]

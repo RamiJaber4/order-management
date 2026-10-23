@@ -10,6 +10,9 @@ venv
 **/*.py[cod]
 .pytest_cache
 .test-postgres
+backups
+scripts
+docs
 .vscode
 .agents
 .codex
