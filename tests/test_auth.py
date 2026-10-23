@@ -120,7 +120,16 @@ def test_order_rejects_client_supplied_owner(client, seeded):
 
 
 def test_registration_rejects_invalid_email_and_short_password(raw_client, seeded):
-    for email, password in [("invalid", TEST_PASSWORD), ("new@example.com", "short")]:
+    for email, password in [("invalid", TEST_PASSWORD), ("new@example.com", "abc")]:
         assert raw_client.post("/auth/register", json={
             "name": "New", "email": email, "password": password,
         }).status_code == 422
+
+
+def test_registration_accepts_four_character_password(raw_client, seeded):
+    assert raw_client.post("/auth/register", json={
+        "name": "New", "email": "four@example.com", "password": "abcd",
+    }).status_code == 201
+    assert raw_client.post("/auth/login", json={
+        "email": "four@example.com", "password": "abcd",
+    }).status_code == 200

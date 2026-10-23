@@ -274,7 +274,7 @@ products, duplicate email handling, and product pagination.
 ## JWT authentication and permissions
 
 `POST /auth/register` replaces the old unauthenticated `POST /customers` route.
-Send `name`, `email`, and a password of 12?128 characters. Registration returns
+Send `name`, `email`, and a password of 4 to 128 characters. Registration returns
 201, duplicate email returns 409, and unsupported fields (including `role`) return
 422. Email validation normalizes the domain; the local part remains case-sensitive,
 including for existing customers. No bulk email rewriting is performed.
