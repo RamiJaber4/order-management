@@ -1,4 +1,6 @@
 import os
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -16,14 +18,36 @@ from schemas import (
     OrderCreatedResponse, ProductResponse, OrderResponse,
     LoginRequest, TokenResponse, CustomerResponse,
 )
+from logging_config import configure_logging, RequestLoggingMiddleware
+from error_logging import install_error_logging
+
+configure_logging()
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    logger.info("application_started")
+    try:
+        yield
+    finally:
+        logger.info("application_stopped")
 
 APP_ENV = os.getenv("APP_ENV", "development")
-app = FastAPI(title=f"Order Management — {APP_ENV}")
+app = FastAPI(title=f"Order Management — {APP_ENV}", lifespan=lifespan)
+app.add_middleware(RequestLoggingMiddleware)
+install_error_logging(app)
 
 
-@app.get('/health', tags=['Environment'])
+@app.get('/health', tags=['Environment'], include_in_schema=False)
+@app.get('/health/ready', tags=['Environment'])
 def health(session: Session = Depends(get_db)):
     session.execute(select(1))
+    return {"status": "ok", "environment": APP_ENV}
+
+
+@app.get('/health/live', tags=['Environment'])
+def liveness():
     return {"status": "ok", "environment": APP_ENV}
 
 

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jwt.exceptions import InvalidTokenError
+from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from pwdlib import PasswordHash
 from sqlalchemy.orm import Session
 
@@ -24,9 +24,11 @@ DUMMY_HASH = password_hasher.hash("not-a-real-account-password")
 bearer = HTTPBearer(auto_error=False)
 
 
-def unauthorized() -> HTTPException:
-    return HTTPException(status_code=401, detail="Invalid or expired credentials",
-                         headers={"WWW-Authenticate": "Bearer"})
+def unauthorized(reason="authentication_failed") -> HTTPException:
+    exc = HTTPException(status_code=401, detail="Invalid or expired credentials",
+                        headers={"WWW-Authenticate": "Bearer"})
+    exc.log_reason = reason
+    return exc
 
 
 def create_access_token(customer_id: int) -> str:
@@ -41,7 +43,7 @@ def get_current_customer(
     session: Session = Depends(get_db),
 ) -> Customer:
     if credentials is None:
-        raise unauthorized()
+        raise unauthorized("credentials_missing")
     try:
         payload = jwt.decode(credentials.credentials, JWT_SECRET,
                              algorithms=[ALGORITHM],
@@ -49,11 +51,13 @@ def get_current_customer(
         customer_id = int(payload["sub"])
         if not 0 < customer_id <= 2147483647:
             raise ValueError("Invalid customer id")
+    except ExpiredSignatureError as exc:
+        raise unauthorized("token_expired") from exc
     except (InvalidTokenError, ValueError, TypeError, OverflowError) as exc:
-        raise unauthorized() from exc
+        raise unauthorized("token_invalid") from exc
     customer = session.get(Customer, customer_id)
     if customer is None:
-        raise unauthorized()
+        raise unauthorized("account_unavailable")
     return customer
 
 

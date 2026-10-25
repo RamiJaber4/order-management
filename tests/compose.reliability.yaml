@@ -1,0 +1,54 @@
+# Disposable environment used by scripts/check_docker_reliability.py only.
+# No production/development env files, published ports or existing volumes.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ecommerce_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: reliability_test_password
+    volumes:
+      - data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ecommerce_db"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  migrate:
+    build: ..
+    environment: &test-environment
+      APP_ENV: reliability
+      DATABASE_URL: postgresql+psycopg://postgres:reliability_test_password@db:5432/ecommerce_db
+      JWT_SECRET: disposable-reliability-secret-never-use-in-deployment-12345
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    build: ..
+    restart: unless-stopped
+    environment: *test-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=12).close()"]
+      interval: 2s
+      timeout: 15s
+      retries: 30
+  tests:
+    build: ..
+    environment:
+      <<: *test-environment
+      TEST_POSTGRES_URL: postgresql+psycopg://postgres:reliability_test_password@db:5432/postgres
+      PYTHONPATH: /tmp/testdeps:/workspace
+    volumes:
+      - ..:/workspace:ro
+    working_dir: /workspace
+    command: ["sh", "-c", "python -m pip install --target /tmp/testdeps -r requirements-test.txt --quiet && python -m pytest -q -p no:cacheprovider"]
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  data:

@@ -1,5 +1,13 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   api:
+    logging: *default-logging
+    restart: unless-stopped
     build: .
     ports:
       - "127.0.0.1:8000:8000"
@@ -7,15 +15,16 @@ services:
     environment:
       APP_ENV: development
     # Original development database migrations are an explicit operator step.
-    command: ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).close()"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=12).close()"]
       interval: 10s
-      timeout: 5s
+      timeout: 15s
       retries: 5
       start_period: 30s
 
   api-test:
+    logging: *default-logging
+    restart: unless-stopped
     profiles: [test]
     build: .
     ports:
@@ -26,18 +35,45 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate-test:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
         - python
         - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).close()"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=12).close()"
       interval: 10s
-      timeout: 5s
+      timeout: 15s
       retries: 5
       start_period: 30s
 
+  migrate-test:
+    logging: *default-logging
+    profiles: [test]
+    build: .
+    env_file: .env.test
+    environment:
+      APP_ENV: test
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  migrate-development:
+    logging: *default-logging
+    profiles: [tools]
+    build: .
+    env_file: .env.development
+    environment:
+      APP_ENV: development
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    restart: "no"
+
   db:
+    logging: *default-logging
+    restart: unless-stopped
     profiles: [test]
     image: postgres:16
     environment:

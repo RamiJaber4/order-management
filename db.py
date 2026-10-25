@@ -1,6 +1,7 @@
 """Database connection and request-scoped SQLAlchemy sessions."""
 
 import os
+import logging
 from collections.abc import Generator
 
 from dotenv import load_dotenv
@@ -13,6 +14,9 @@ load_dotenv()
 
 from models import Customer, OrderItem, Product, Order
 from schemas import CustomerCreate, ProductCreate, OrderCreate
+from database_settings import connection_arguments, positive_integer
+
+logger = logging.getLogger(__name__)
 
 
 # Engine construction is lazy: a connection opens only when needed.
@@ -22,7 +26,9 @@ DATABASE_URL = os.getenv(
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
-    connect_args={"options": "-csearch_path=ecommerce,public"},
+    hide_parameters=True,
+    pool_timeout=positive_integer("DB_POOL_TIMEOUT_SECONDS", 3),
+    connect_args=connection_arguments(),
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
@@ -54,12 +60,14 @@ def create_customer(customer: CustomerCreate, session: Session):
                 == "customers_email_key"):
             raise HTTPException(status_code=409, detail="Email already exists") from exc
         raise
+    logger.info("customer_created")
     return {"msg": "customer created"}
 
 
 def create_product(product: ProductCreate, session: Session):
     session.add(Product(**product.model_dump()))
     session.commit()
+    logger.info("product_created")
     return {"msg": "product created"}
 
 
@@ -131,4 +139,5 @@ def create_order(
         session.rollback()
         raise
 
+    logger.info("order_created", extra={"order_id": new_order.id, "item_count": len(order.items)})
     return {"msg": "order created", "order_id": new_order.id}

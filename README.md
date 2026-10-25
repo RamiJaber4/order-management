@@ -42,13 +42,15 @@ Start both development and test:
 docker compose --profile test up --build -d --wait
 ```
 
-Test reads `.env.test`, uses its own JWT secret and database, and applies migrations
-at startup. PostgreSQL has no published host port. The existing external volume
+Test reads `.env.test` and uses its own JWT secret and database. The separate
+`migrate-test` deployment service must finish successfully before `api-test` starts;
+the API process itself never runs migrations. PostgreSQL has no published host port. The existing external volume
 `backend-improve_postgres_data` is retained; a fresh machine must create that empty
 volume using `docker volume create backend-improve_postgres_data` first.
 The bundled database password is only for this local test setup.
 
-Check identity via `/health` and the Swagger title. Both APIs are loopback-only.
+Check identity via `/health/ready` and the Swagger title. `/health` remains an
+alias for readiness. Both APIs are loopback-only.
 Normal commands:
 
 ```powershell
@@ -65,6 +67,137 @@ database volume is not part of the image and is not removed by Compose `down`.
 Do not delete the volume in Docker Desktop. The original host database is separate.
 `.dockerignore` excludes local secrets, virtual environments, and caches from
 the build context. The API image runs as an unprivileged user.
+
+## Health, timeouts and recovery
+
+`GET /health/live` returns 200 when the application can handle a request; it does
+not access PostgreSQL. `GET /health/ready` checks PostgreSQL with `SELECT 1`.
+Unavailable connections, exhausted connection pools and database timeouts return
+503 with `{"detail":"Service temporarily unavailable"}`. Unexpected application
+errors return 500 with `{"detail":"Internal server error"}`. Both responses include
+`X-Request-ID`, as do successful responses. Internal exception details and arbitrary
+server-error headers are never forwarded to clients. Data conflicts such as an
+existing registration email remain 409; database constraint/programming errors
+are not automatically treated as temporary outages.
+
+The connection pool checks stale connections before reuse. Once PostgreSQL is
+available again, subsequent readiness requests can return 200 without restarting
+the API. Compose uses readiness for health checks. An unhealthy status alone does
+not restart a container; `restart: unless-stopped` restarts an exited service and
+permits restart after Docker restarts, unless the operator explicitly stopped it.
+
+Defaults can be overridden in the appropriate private environment file:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DB_CONNECT_TIMEOUT_SECONDS` | 3 | Database connection attempt |
+| `DB_POOL_TIMEOUT_SECONDS` | 3 | Wait for a pooled connection |
+| `DB_STATEMENT_TIMEOUT_MS` | 5000 | Each SQL statement |
+| `DB_LOCK_TIMEOUT_MS` | 2000 | Each database lock wait |
+| `DB_IDLE_TRANSACTION_TIMEOUT_MS` | 10000 | Idle transaction |
+| `MIGRATION_STATEMENT_TIMEOUT_MS` | 120000 | Migration statement |
+| `MIGRATION_LOCK_TIMEOUT_MS` | 10000 | Migration lock wait |
+| `MIGRATION_IDLE_TRANSACTION_TIMEOUT_MS` | 60000 | Idle migration transaction |
+
+All values must be positive integers. These bound individual database waits, not
+the total duration of a request containing several operations. Migrations use
+longer limits because DDL can take longer. Uvicorn also limits idle keep-alive
+connections to 5 seconds and graceful shutdown to 20 seconds. Keep-alive is not
+a request execution timeout. Docker readiness probes wait up to 12 seconds and
+have a 15-second process timeout with these defaults; review probe limits if
+increasing database waits.
+
+## Migration deployment steps
+
+For development, back up and check compatibility with the existing database as
+described below before explicitly deploying migrations:
+
+```powershell
+docker compose --profile tools run --rm --build migrate-development
+# Continue only if the migration command succeeds:
+docker compose up --build -d --wait api
+```
+
+For a test deployment, apply migrations as a separate, visible step before
+recreating the API. A failure must stop deployment; inspect the migration logs.
+
+```powershell
+docker compose --profile test up -d --wait db
+docker compose --profile test run --rm --build migrate-test
+# Continue only if the migration command succeeds:
+docker compose --profile test up --build -d --wait api-test
+```
+
+The convenience `docker compose --profile test up --build -d --wait` also orders
+the one-shot `migrate-test` service before the test API. A normal API restart
+does not run migrations. Do not start multiple migration jobs against one database.
+
+## Troubleshooting
+
+- **Readiness is 503, liveness is 200:** the process is alive but PostgreSQL is
+  unavailable or timed out. Check the host PostgreSQL service on port 5433 for
+  development, or `docker compose --profile test ps` and
+  `docker compose --profile test logs --tail 100 db` for test. Check the relevant
+  private environment file locally; do not paste credentials into logs or tickets.
+- **Readiness is 404:** rebuild the API image; older images lack the new routes.
+- **API fails to start after migration failure:** inspect
+  `docker compose --profile test logs --tail 100 migrate-test`, fix the cause,
+  rerun the migration step, then start the API. Never stamp a revision merely to
+  bypass a failed migration.
+- **Request is 500 or 503:** keep its `X-Request-ID` and find the matching JSON
+  events in the API logs. `reason`, `description`, exception type and safe stack
+  locations describe the issue. Pool exhaustion, lock/statement timeouts and
+  database availability need different remedies; do not blindly increase limits.
+- **Container exited:** check its logs and exit state. An explicitly stopped
+  service needs `docker compose start` or `up`; `unless-stopped` respects that stop.
+
+Run a complete disposable verification (requires Docker and dependency downloads):
+
+```powershell
+.\.venv\Scripts\python scripts/check_docker_reliability.py
+# If pytest already passed, rerun only the Docker recovery checks:
+.\.venv\Scripts\python scripts/check_docker_reliability.py --skip-pytest
+```
+
+This creates a unique Compose project, runs the full pytest suite, stops and starts
+its own PostgreSQL, verifies live=200/ready=503 and recovery=200, restarts containers,
+checks automatic recovery after the API process exits, and recreates its database
+container to check volume persistence. Its temporary
+containers and volume are removed afterward. Existing environments, private env
+files and the external application volume are not used.
+
+## Application logs
+
+The API writes JSON logs to stdout, collected by Docker. Compose rotates logs at
+10 MB and retains up to three files per container. Each entry includes a
+UTC timestamp, severity, logger and environment. Requests include a generated
+request ID, route template, status and duration in milliseconds. The ID is also
+returned in the `X-Request-ID` response header for responses sent by the API.
+Unknown URLs are logged as `<unmatched>`; query strings, request bodies, headers,
+emails, passwords and tokens are not recorded. Unexpected errors include the
+exception type and stack locations without exception text, source lines or SQL
+parameters. Successful writes are logged only after commit.
+
+Rejected requests also emit `request_rejected` with a fixed `reason` and readable
+`description`: insufficient stock, invalid product price, missing resources,
+duplicate registration, missing/invalid/expired bearer credentials and permission
+failures. Client authentication responses remain generic. Validation failures
+include up to 20 issues with approved field names and error types plus the total
+error count; submitted values, unknown field names, validator messages and context
+are omitted. These events share the request ID with the completion log.
+
+Set `LOG_LEVEL=DEBUG|INFO|WARNING|ERROR|CRITICAL` in `.env.development` or
+`.env.test` (default `INFO`), then recreate the service with `docker compose up
+-d` (include `--profile test` for test). All HTTP requests, including health checks,
+emit completion logs at `INFO` or above with status and elapsed time. Uvicorn
+access logs are replaced by the request middleware.
+Use module loggers (`logging.getLogger(__name__)`) and fixed event messages;
+never interpolate user input or secrets into log messages.
+
+```powershell
+docker compose logs -f --tail 100 api
+docker compose --profile test logs -f --tail 100 api-test
+```
 
 ## Continuous integration
 

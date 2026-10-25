@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 from base import Base
+from database_settings import connection_arguments
 import models  # Register mapped tables.
 
 config = context.config
@@ -56,6 +57,7 @@ def run_migrations():
         engine = engine_from_config(
             config.get_section(config.config_ini_section),
             prefix="sqlalchemy.", poolclass=pool.NullPool,
+            connect_args=connection_arguments(migrations=True), hide_parameters=True,
         )
         try:
             with engine.connect() as connection:
