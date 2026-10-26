@@ -3,8 +3,8 @@ import argparse
 
 from sqlalchemy import select
 
-from db import SessionLocal
-from models import Customer
+from app.db.session import SessionLocal
+from app.models import Customer
 
 
 def main() -> None:

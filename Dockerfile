@@ -10,11 +10,12 @@ COPY requirements.txt .
 RUN python -m pip install --no-cache-dir -r requirements.txt \
     && useradd --create-home --uid 10001 appuser
 
-COPY main.py db.py models.py schemas.py base.py auth.py manage.py logging_config.py error_logging.py database_settings.py alembic.ini ./
+COPY app/ ./app/
+COPY manage.py alembic.ini ./
 COPY alembic/ ./alembic/
 
 USER appuser
 EXPOSE 8000
 
 # Migrations are a separate deployment step; Uvicorn receives shutdown signals.
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "5", "--timeout-graceful-shutdown", "20"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--timeout-keep-alive", "5", "--timeout-graceful-shutdown", "20"]

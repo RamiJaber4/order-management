@@ -1,5 +1,28 @@
 # Order Management
 
+## Project layout
+
+```text
+app/
+  main.py             # FastAPI entry point and middleware
+  api/routes.py       # HTTP endpoints and dependencies
+  core/               # Authentication, logging and database settings
+  db/                 # SQLAlchemy base, engine and session lifecycle
+  models.py           # SQLAlchemy table mappings
+  schemas.py          # Pydantic request and response models
+  services/           # Customer, product and order operations
+alembic/              # Database migration history
+tests/                # Automated tests and disposable Docker environment
+scripts/              # Environment, backup and verification tools
+manage.py             # Administrative CLI
+```
+
+Run commands from the repository root. Application imports use the `app` package.
+The API entry point is `app.main:app`; update external launch configurations
+that previously used `main:app`. Docker uses the new entry point automatically.
+Keep runtime configuration, Docker files and dependency manifests at the root.
+Local `.env` files, backups and generated caches are ignored by Git.
+
 ## Run with Docker
 
 The local development and test environments are explicitly separated:
@@ -211,12 +234,12 @@ After pushing the workflow, open the repository's **Actions** tab and select
 is on the default branch. This workflow tests code; it does not deploy it.
 
 This project manages six PostgreSQL tables using SQLAlchemy 2.x and Alembic.
-`models.py` contains the mappings; `base.py` defines the shared ORM base.
-`schemas.py` contains Pydantic request and response models. Routes declare
+`app/models.py` contains the mappings; `app/db/base.py` defines the shared ORM base.
+`app/schemas.py` contains Pydantic request and response models. Routes declare
 `response_model` to validate and expose only the documented response fields.
 ORM-backed responses use `from_attributes=True`. Order responses include their
 items; customer/payment/product ORM relationships are not exposed.
-`db.py` provides the engine, session factory, and a FastAPI session dependency.
+`app/db/session.py` provides the engine, session factory, and a FastAPI session dependency.
 
 ## Setup
 
@@ -333,8 +356,8 @@ added. Related objects load on access while the session is open.
 ## Using a session
 
 For FastAPI, import `Session` from `sqlalchemy.orm`, `Depends` from `fastapi`,
-and `get_db` from `db`. Add `db: Session = Depends(get_db)` to your route.
-Import ORM classes from `models` in your application code.
+and `get_db` from `app.db.session`. Add `db: Session = Depends(get_db)` to your route.
+Import ORM classes from `app.models` in your application code.
 
 `get_db()` supplies one session and closes it after the request. Your route or
 service explicitly calls `db.commit()` when a unit of work succeeds. An escaping
@@ -345,11 +368,11 @@ pending changes; call `db.flush()` if you need generated IDs before committing.
 For scripts, use `with SessionLocal() as db:` and explicitly commit writes.
 
 ORM models describe database rows. `CustomerCreate`, `ProductCreate`, and
-`OrderCreate` live in `schemas.py` as Pydantic request models.
-`main.py` exposes registration/login, products, and orders, using one database session per request.
+`OrderCreate` live in `app/schemas.py` as Pydantic request models.
+`app/api/routes.py` exposes registration/login, products, and orders, using one database session per request.
 The create helpers convert request models into ORM instances before saving.
 
-Start the API with `.\.venv\Scripts\python -m uvicorn main:app --reload`.
+Start the API with `.\.venv\Scripts\python -m uvicorn app.main:app --reload`.
 
 ## Order atomicity and integration tests
 
@@ -372,7 +395,7 @@ are locked in ascending ID order, regardless of their order in the request.
 Prices are read from the database, not supplied by the caller. GET order
 responses include each item's product ID, quantity, price, and computed total.
 
-Order routes delegate database operations to `db.py`. The order
+Order routes delegate database operations to `app/services/orders.py`. The order
 service owns one transaction for customer/product validation, stock deduction,
 order creation, and item creation. It locks the product with `SELECT FOR UPDATE`
 until commit, so concurrent orders cannot consume the same stock. A missing product returns 404; insufficient stock returns 409. Any failure rolls back the complete transaction.

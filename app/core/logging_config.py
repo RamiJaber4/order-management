@@ -93,7 +93,7 @@ class RequestLoggingMiddleware:
         try:
             await self.app(scope, receive, send_response)
         except Exception as exc:
-            from error_logging import database_unavailable, server_error_response, unexpected_error_details
+            from app.core.error_logging import database_unavailable, server_error_response, unexpected_error_details
 
             failed = True
             logger.exception("request_failed", extra=unexpected_error_details(exc))

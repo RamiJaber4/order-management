@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from models import Order, OrderItem, Product
+from app.models import Order, OrderItem, Product
 
 
 @pytest.fixture

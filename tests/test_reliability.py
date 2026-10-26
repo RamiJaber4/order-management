@@ -9,11 +9,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError, TimeoutError as PoolTimeoutError
 
-from database_settings import connection_arguments
-from db import get_db
-from error_logging import install_error_logging
-from logging_config import JsonFormatter, RequestLoggingMiddleware
-from main import app
+from app.core.database_settings import connection_arguments
+from app.db.session import get_db
+from app.core.error_logging import install_error_logging
+from app.core.logging_config import JsonFormatter, RequestLoggingMiddleware
+from app.main import app
 
 
 @pytest.fixture
@@ -110,7 +110,7 @@ def test_server_errors_are_safe_correlated_and_logged(error, status, caplog):
 
 @pytest.mark.parametrize("state,status", [("08006", 503), ("57014", 503), ("55P03", 503), ("42501", 500)])
 def test_operational_errors_classified_by_sqlstate(state, status):
-    from error_logging import database_unavailable
+    from app.core.error_logging import database_unavailable
 
     class DriverError(Exception):
         sqlstate = state

@@ -5,9 +5,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from auth import ALGORITHM, JWT_SECRET, create_access_token, password_hasher
+from app.core.auth import ALGORITHM, JWT_SECRET, create_access_token, password_hasher
 from conftest import TEST_HASH, TEST_PASSWORD
-from models import Customer
+from app.models import Customer
 
 
 def authorization(customer_id):

@@ -6,7 +6,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from models import Order, OrderItem, Product
+from app.models import Order, OrderItem, Product
 
 
 def persisted_state(engine, product_id):

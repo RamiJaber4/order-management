@@ -66,7 +66,7 @@ def main():
 
         # A unique customer in the disposable database proves persistence.
         customer_id = python(
-            "from db import SessionLocal; from models import Customer\n"
+            "from app.db.session import SessionLocal; from app.models import Customer\n"
             "with SessionLocal() as session:\n"
             "    customer = Customer(name='Restart probe', email='restart@example.com')\n"
             "    session.add(customer); session.commit(); print(customer.id)"
@@ -104,7 +104,7 @@ def main():
         run("restart", "db", "api")
         await_ready()
         persisted = python(
-            "from db import SessionLocal; from models import Customer\n"
+            "from app.db.session import SessionLocal; from app.models import Customer\n"
             "with SessionLocal() as session:\n"
             f"    print(session.get(Customer, {int(customer_id)}).email)"
         )
@@ -113,7 +113,7 @@ def main():
         run("up", "-d", "--force-recreate", "--no-deps", "db")
         await_ready()
         persisted = python(
-            "from db import SessionLocal; from models import Customer\n"
+            "from app.db.session import SessionLocal; from app.models import Customer\n"
             "with SessionLocal() as session:\n"
             f"    print(session.get(Customer, {int(customer_id)}).email)"
         )

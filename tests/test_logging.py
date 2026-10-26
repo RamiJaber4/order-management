@@ -6,9 +6,9 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from error_logging import HTTP_REASONS, install_error_logging
+from app.core.error_logging import HTTP_REASONS, install_error_logging
 
-from logging_config import JsonFormatter, RequestLoggingMiddleware, request_id_context
+from app.core.logging_config import JsonFormatter, RequestLoggingMiddleware, request_id_context
 
 
 @pytest.mark.parametrize("detail,reason", [(detail, value[0]) for detail, value in HTTP_REASONS.items()])
@@ -33,7 +33,7 @@ def test_rejection_has_safe_reason_and_request_id(caplog, detail, reason):
 
 
 def test_validation_logs_safe_fields_without_input_or_unknown_keys(caplog):
-    from schemas import CustomerCreate
+    from app.schemas import CustomerCreate
 
     app = FastAPI()
     install_error_logging(app)
@@ -59,7 +59,7 @@ def test_validation_logs_safe_fields_without_input_or_unknown_keys(caplog):
 
 @pytest.mark.parametrize("reason", ["credentials_missing", "token_expired", "token_invalid", "account_unavailable"])
 def test_auth_reasons_preserve_generic_response(caplog, reason):
-    from auth import unauthorized
+    from app.core.auth import unauthorized
 
     app = FastAPI()
     install_error_logging(app)
@@ -92,7 +92,7 @@ def test_unknown_http_detail_is_never_logged(caplog):
 
 
 def test_database_errors_have_safe_actionable_description():
-    from error_logging import unexpected_error_details
+    from app.core.error_logging import unexpected_error_details
     from sqlalchemy.exc import OperationalError
 
     error = OperationalError("SELECT private", {"password": "secret"}, Exception("credentials"))
@@ -168,7 +168,7 @@ def test_failed_requests_log_and_restore_context(caplog):
 
     with caplog.at_level(logging.ERROR):
         asyncio.run(run())
-    records = [r for r in caplog.records if r.name == "logging_config"]
+    records = [r for r in caplog.records if r.name == "app.core.logging_config"]
     assert [r.msg for r in records] == ["request_failed", "request_completed"]
     assert records[-1].status_code == 500
     assert "sensitive exception" not in JsonFormatter().format(records[0])

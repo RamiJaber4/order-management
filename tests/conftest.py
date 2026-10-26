@@ -14,10 +14,10 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from db import get_db
-from main import app
-from models import Customer, Product
-from auth import password_hasher, create_access_token
+from app.db.session import get_db
+from app.main import app
+from app.models import Customer, Product
+from app.core.auth import password_hasher, create_access_token
 
 TEST_PASSWORD = "test-password-12345"
 TEST_HASH = password_hasher.hash(TEST_PASSWORD)

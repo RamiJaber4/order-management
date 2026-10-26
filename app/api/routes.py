@@ -1,62 +1,44 @@
 import os
-import logging
-from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
-import db
-from db import get_db
-from models import Customer
-from auth import (
+from app.services import customers, orders, products
+from app.db.session import get_db
+from app.models import Customer
+from app.core.auth import (
     DUMMY_HASH, password_hasher, create_access_token, unauthorized,
     get_current_customer, require_admin, require_customer_access,
 )
-from schemas import (
+from app.schemas import (
     CustomerCreate, ProductCreate, OrderCreate, MessageResponse,
     OrderCreatedResponse, ProductResponse, OrderResponse,
     LoginRequest, TokenResponse, CustomerResponse,
 )
-from logging_config import configure_logging, RequestLoggingMiddleware
-from error_logging import install_error_logging
-
-configure_logging()
-logger = logging.getLogger(__name__)
-
-
-@asynccontextmanager
-async def lifespan(app):
-    logger.info("application_started")
-    try:
-        yield
-    finally:
-        logger.info("application_stopped")
 
 APP_ENV = os.getenv("APP_ENV", "development")
-app = FastAPI(title=f"Order Management — {APP_ENV}", lifespan=lifespan)
-app.add_middleware(RequestLoggingMiddleware)
-install_error_logging(app)
+router = APIRouter()
 
 
-@app.get('/health', tags=['Environment'], include_in_schema=False)
-@app.get('/health/ready', tags=['Environment'])
+@router.get('/health', tags=['Environment'], include_in_schema=False)
+@router.get('/health/ready', tags=['Environment'])
 def health(session: Session = Depends(get_db)):
     session.execute(select(1))
     return {"status": "ok", "environment": APP_ENV}
 
 
-@app.get('/health/live', tags=['Environment'])
+@router.get('/health/live', tags=['Environment'])
 def liveness():
     return {"status": "ok", "environment": APP_ENV}
 
 
-@app.post('/auth/register', status_code=201, response_model=MessageResponse)
+@router.post('/auth/register', status_code=201, response_model=MessageResponse)
 def create_customer(customer: CustomerCreate, session: Session = Depends(get_db)):
-    return db.create_customer(customer, session)
+    return customers.create_customer(customer, session)
 
 
-@app.post('/auth/login', response_model=TokenResponse)
+@router.post('/auth/login', response_model=TokenResponse)
 def login(data: LoginRequest, session: Session = Depends(get_db)):
     customer = session.scalar(select(Customer).where(Customer.email == str(data.email)))
     stored_hash = customer.password_hash if customer and customer.password_hash else DUMMY_HASH
@@ -66,39 +48,39 @@ def login(data: LoginRequest, session: Session = Depends(get_db)):
     return {"access_token": create_access_token(customer.id), "token_type": "bearer"}
 
 
-@app.get('/auth/me', response_model=CustomerResponse)
+@router.get('/auth/me', response_model=CustomerResponse)
 def me(customer: Customer = Depends(get_current_customer)):
     return customer
 
 
-@app.post('/products', response_model=MessageResponse)
+@router.post('/products', response_model=MessageResponse)
 def add_product(product: ProductCreate, session: Session = Depends(get_db),
                 admin: Customer = Depends(require_admin)):
-    return db.create_product(product, session)
+    return products.create_product(product, session)
 
-@app.post('/orders', status_code=201, response_model=OrderCreatedResponse)
+@router.post('/orders', status_code=201, response_model=OrderCreatedResponse)
 def create_order(order: OrderCreate, session: Session = Depends(get_db),
                  customer: Customer = Depends(get_current_customer)):
-    return db.create_order(order, customer.id, session)
+    return orders.create_order(order, customer.id, session)
 
-@app.get('/products', response_model=list[ProductResponse])
+@router.get('/products', response_model=list[ProductResponse])
 def list_products(
     limit : int= Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_db)):
-    return db.list_products(limit, offset, session)
+    return products.list_products(limit, offset, session)
 
-@app.get('/orders/{id}', response_model=OrderResponse)
+@router.get('/orders/{id}', response_model=OrderResponse)
 def get_order(id: int, session: Session = Depends(get_db),
               customer: Customer = Depends(get_current_customer)):
-    order = db.get_order_by_id(id, session)
+    order = orders.get_order_by_id(id, session)
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found")
     require_customer_access(customer, order.customer_id)
     return order
 
 
-@app.get("/customers/{id}/orders", response_model=list[OrderResponse])
+@router.get("/customers/{id}/orders", response_model=list[OrderResponse])
 def get_customer_orders(
     id: int,
     limit: int = Query(default=20, ge=1, le=100),
@@ -107,7 +89,7 @@ def get_customer_orders(
     customer: Customer = Depends(get_current_customer),
 ):
     require_customer_access(customer, id)
-    return db.get_customer_order(
+    return orders.get_customer_order(
         id=id,
         session=session,
         limit=limit,

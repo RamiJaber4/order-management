@@ -7,9 +7,9 @@ from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
-from base import Base
-from database_settings import connection_arguments
-import models  # Register mapped tables.
+from app.db.base import Base
+from app.core.database_settings import connection_arguments
+import app.models  # Register mapped tables.
 
 config = context.config
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")

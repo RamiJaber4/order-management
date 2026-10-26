@@ -16,7 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from base import Base
+from app.db.base import Base
 
 # PostgreSQL validates strings. The connection search_path resolves the type.
 

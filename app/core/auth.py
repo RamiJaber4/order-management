@@ -9,8 +9,8 @@ from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 from pwdlib import PasswordHash
 from sqlalchemy.orm import Session
 
-from db import get_db
-from models import Customer
+from app.db.session import get_db
+from app.models import Customer
 
 # db imports load_dotenv before this configuration is read. No fallback signing key.
 JWT_SECRET = os.environ.get("JWT_SECRET", "")
