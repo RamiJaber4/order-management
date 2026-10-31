@@ -20,3 +20,5 @@ docs
 tests
 requirements-test.txt
 README.md
+tmp
+output

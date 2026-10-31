@@ -11,6 +11,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt \
     && useradd --create-home --uid 10001 appuser
 
 COPY app/ ./app/
+COPY etl_analytics/ ./etl_analytics/
 COPY manage.py alembic.ini ./
 COPY alembic/ ./alembic/
 

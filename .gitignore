@@ -8,3 +8,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .test-postgres/
+tmp/
+output/
+*.pem
+*.key

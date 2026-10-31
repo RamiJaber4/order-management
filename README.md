@@ -1,5 +1,8 @@
 # Order Management
 
+FastAPI order management with PostgreSQL, JWT authentication, transactional stock
+updates and a full-refresh daily order analytics pipeline.
+
 ## Project layout
 
 ```text
@@ -12,6 +15,7 @@ app/
   schemas.py          # Pydantic request and response models
   services/           # Customer, product and order operations
 alembic/              # Database migration history
+etl_analytics/        # Daily SQL aggregation, validation and atomic publication
 tests/                # Automated tests and disposable Docker environment
 scripts/              # Environment, backup and verification tools
 manage.py             # Administrative CLI
@@ -29,7 +33,7 @@ The local development and test environments are explicitly separated:
 
 | Environment | Swagger | Database | Docker service |
 | --- | --- | --- | --- |
-| Development | http://localhost:8000/docs | Existing host PostgreSQL at port 5433 | `api` |
+| Development | http://localhost:8000/docs | Existing host PostgreSQL configured in `.env` | `api` |
 | Test | http://localhost:8001/docs | Existing Docker PostgreSQL volume | `api-test` |
 
 Install Docker with Compose support (Docker Desktop on Windows, using Linux
@@ -55,7 +59,7 @@ docker compose up --build -d --wait
 
 Development reads `.env.development`: its database hostname is
 `host.docker.internal`, which reaches the Windows host from the container.
-Local Python/Alembic commands still use `.env` and `127.0.0.1:5433`.
+Local Python/Alembic commands still use the host and port in `.env`.
 These are two paths to the same database. Development does **not** run migrations
 automatically. Back up, inspect data compatibility, then run migrations explicitly.
 
@@ -90,6 +94,41 @@ database volume is not part of the image and is not removed by Compose `down`.
 Do not delete the volume in Docker Desktop. The original host database is separate.
 `.dockerignore` excludes local secrets, virtual environments, and caches from
 the build context. The API image runs as an unprivileged user.
+
+## Database audit and daily ETL
+
+Before migrations or ETL publication, verify the configured source database:
+
+```powershell
+.\.venv\Scripts\python scripts/audit_database.py
+```
+
+The audit uses a read-only repeatable-read transaction and prints the database
+name/port, table counts, migration revision, missing order items/dates, invalid
+values, broken references, ID-sequence checks and incomplete legacy analytics
+publications. It reports legacy accounts
+without credentials as a warning. It prints no customer records or credentials
+and does not repair data. Exit codes are 0 (checks passed), 1 (issues found), or
+2 (audit unavailable). Passing these checks does not replace the migration/model
+integration tests or establish the business meaning of legacy data.
+
+Verify the database identity as well as the port: another PostgreSQL instance
+may belong to a different project. A connection timeout is not evidence of data
+corruption. Do not create an empty replacement or point migrations at another
+database simply to make the connection succeed.
+
+The ETL aggregates item quantities and recorded order value by day in SQL,
+validates the results in Python and replaces the analytics results atomically.
+Its source and target URLs can be configured separately. Start with a dry run:
+
+```powershell
+python -m etl_analytics.run --reconcile
+```
+
+See [the ETL guide](etl_analytics/README.md) for explicit target initialization,
+publication, isolated demo data, metric definitions and limitations. Generated
+run evidence, PDFs and temporary files stay local under ignored `output/` and
+`tmp/` directories. Application data and backups are not part of the repository.
 
 ## Health, timeouts and recovery
 
