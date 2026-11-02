@@ -1,0 +1,21 @@
+-- Preserve v1 publications/history while explicitly upgrading target metadata.
+ALTER TABLE analytics.etl_schema_version DROP CONSTRAINT etl_schema_version_version_check;
+UPDATE analytics.etl_schema_version SET version=2;
+ALTER TABLE analytics.etl_schema_version ADD CONSTRAINT etl_schema_version_version_check CHECK (version=2);
+ALTER TABLE analytics.etl_runs DROP CONSTRAINT etl_runs_status_check;
+ALTER TABLE analytics.etl_runs ADD CONSTRAINT etl_runs_status_check CHECK (status IN ('running','complete','failed','incomplete'));
+ALTER TABLE analytics.etl_runs ALTER COLUMN published_at DROP NOT NULL;
+ALTER TABLE analytics.etl_runs ADD COLUMN pipeline_name text NOT NULL DEFAULT 'daily_orders';
+ALTER TABLE analytics.etl_runs ADD COLUMN mode text NOT NULL DEFAULT 'full' CHECK (mode IN ('full','incremental'));
+ALTER TABLE analytics.etl_runs ADD COLUMN started_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE analytics.etl_runs ADD COLUMN finished_at timestamptz;
+ALTER TABLE analytics.etl_runs ADD COLUMN duration_seconds numeric(18,6);
+ALTER TABLE analytics.etl_runs ADD COLUMN rows_read bigint NOT NULL DEFAULT 0;
+ALTER TABLE analytics.etl_runs ADD COLUMN rows_inserted bigint NOT NULL DEFAULT 0;
+ALTER TABLE analytics.etl_runs ADD COLUMN rows_updated bigint NOT NULL DEFAULT 0;
+ALTER TABLE analytics.etl_runs ADD COLUMN rows_unchanged bigint NOT NULL DEFAULT 0;
+ALTER TABLE analytics.etl_runs ADD COLUMN rows_rejected bigint NOT NULL DEFAULT 0;
+ALTER TABLE analytics.etl_runs ADD COLUMN error_code text;
+ALTER TABLE analytics.etl_runs ADD COLUMN watermark_before timestamptz;
+ALTER TABLE analytics.etl_runs ADD COLUMN watermark_after timestamptz;
+ALTER TABLE analytics.etl_runs ADD COLUMN lookback_seconds integer NOT NULL DEFAULT 300 CHECK (lookback_seconds>=0);

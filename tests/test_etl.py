@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import create_engine, event, text
 
 from etl_analytics.load import initialize_target, LOCK_ID
-from etl_analytics.pipeline import run_pipeline
+from etl_analytics.daily_pipeline import run_pipeline
 from etl_analytics.transform import transform
 from etl_analytics.validate import validate
 
@@ -16,6 +16,8 @@ def etl_source(pg_engine, seeded):
     with pg_engine.begin() as conn:
         conn.execute(text('DELETE FROM analytics.etl_current_run'))
         conn.execute(text('DELETE FROM analytics.daily_order_metrics'))
+        conn.execute(text('DELETE FROM analytics.etl_checkpoints'))
+        conn.execute(text('DELETE FROM analytics.fact_order_sales'))
         conn.execute(text('DELETE FROM analytics.etl_runs'))
         product = seeded['items'][0]['product_id']
         other = conn.execute(text("INSERT INTO ecommerce.products(name,unit_price,stock) VALUES ('Other',40,100) RETURNING id")).scalar_one()
@@ -105,7 +107,7 @@ def test_etl_publication_failure_rolls_back(etl_source, monkeypatch):
     def failing_load(conn, days, report):
         conn.execute(text('DELETE FROM analytics.daily_order_metrics'))
         raise RuntimeError('injected_failure_after_delete')
-    monkeypatch.setattr('etl_analytics.pipeline.load', failing_load)
+    monkeypatch.setattr('etl_analytics.daily_pipeline.load', failing_load)
     with pytest.raises(RuntimeError, match='injected_failure'):
         run_pipeline(engine, engine, publish=True)
     assert read_days(engine) == before
@@ -136,7 +138,7 @@ def test_etl_validation_uses_same_snapshot(etl_source, monkeypatch):
         with engine.begin() as writer:
             writer.execute(text('UPDATE ecommerce.order_items SET price=70 WHERE order_id=:id'), {'id':b})
         return reconcile(conn, totals)
-    monkeypatch.setattr('etl_analytics.pipeline.reconcile', concurrent_change)
+    monkeypatch.setattr('etl_analytics.daily_pipeline.reconcile', concurrent_change)
     assert run_pipeline(engine, reconcile_source=True)[0]['totals']['recorded_item_value_ils'] == 150
 
 
@@ -173,7 +175,7 @@ def test_etl_audit_catches_totals_that_local_checks_cannot(etl_source, monkeypat
         days = [dict(day) for day in extract(conn)]
         days[0]['recorded_item_value_ils'] += 1
         return days
-    monkeypatch.setattr('etl_analytics.pipeline.extract', changed_result)
+    monkeypatch.setattr('etl_analytics.daily_pipeline.extract', changed_result)
     assert run_pipeline(engine)[0]['totals']['recorded_item_value_ils'] == 151
     with pytest.raises(ValueError, match='source_reconciliation_failed'):
         run_pipeline(engine, reconcile_source=True)

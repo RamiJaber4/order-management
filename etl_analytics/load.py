@@ -10,6 +10,17 @@ LOCK_ID = 731040281
 def initialize_target(engine):
     with engine.begin() as connection:
         connection.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': LOCK_ID})
+        exists = connection.execute(text("SELECT to_regclass('analytics.etl_schema_version')")).scalar_one()
+        if exists:
+            versions = connection.execute(text('SELECT version FROM analytics.etl_schema_version')).scalars().all()
+            if versions not in ([1], [2]):
+                raise RuntimeError('unsupported_etl_schema_version')
+            if versions == [1]:
+                for statement in Path(__file__).with_name('schema_v2_upgrade.sql').read_text(encoding='utf-8').split(';'):
+                    if statement.strip():
+                        connection.execute(text(statement))
+        elif connection.execute(text("SELECT to_regclass('analytics.etl_runs')")).scalar_one():
+            raise RuntimeError('unsupported_etl_schema_version')
         for statement in Path(__file__).with_name('schema.sql').read_text(encoding='utf-8').split(';'):
             if statement.strip():
                 connection.execute(text(statement))
@@ -19,7 +30,7 @@ def acquire_lock(connection):
     if not connection.execute(text('SELECT pg_try_advisory_xact_lock(:key)'), {'key': LOCK_ID}).scalar_one():
         raise RuntimeError('another_etl_run_is_active')
     version = connection.execute(text('SELECT version FROM analytics.etl_schema_version')).scalar_one()
-    if version != 1:
+    if version != 2:
         raise RuntimeError('unsupported_etl_schema_version')
 
 

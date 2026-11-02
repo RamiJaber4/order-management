@@ -64,8 +64,20 @@ def audit_analytics(connection, inspector, report):
     ''')).mappings().one()
     report['analytics'] = dict(daily, schema_versions=versions,
                               current_status=current[0]['status'] if len(current) == 1 else None)
-    if versions != [1]:
+    if versions not in ([1], [2]):
         report['issues'].append('unsupported_analytics_schema_version')
+    if versions == [2]:
+        missing = {'fact_order_sales','etl_checkpoints'} - tables
+        if missing:
+            report['issues'].append({'missing_sales_tables': sorted(missing)})
+        else:
+            sales = connection.execute(text('''SELECT c.watermark,r.status,r.mode,
+                r.rows_read,r.rows_inserted,r.rows_updated,r.rows_unchanged
+                FROM analytics.etl_checkpoints c JOIN analytics.etl_runs r ON r.run_id=c.run_id
+                WHERE c.pipeline_name='order_sales' ''')).mappings().one_or_none()
+            report['analytics']['sales_checkpoint'] = dict(sales) if sales else None
+            if sales and sales['status'] != 'complete':
+                report['issues'].append('sales_checkpoint_references_unsuccessful_run')
     if len(current) > 1 or (not current and daily['daily_rows']):
         report['issues'].append('invalid_current_publication')
     if current:

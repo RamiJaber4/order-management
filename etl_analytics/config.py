@@ -8,6 +8,21 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
 
+def sales_options(*, batch_size=None, lookback_seconds=None):
+    result = {}
+    for name,value,env_name,default,minimum in (
+        ('batch_size',batch_size,'ETL_BATCH_SIZE',2000,1),
+        ('lookback_seconds',lookback_seconds,'ETL_LOOKBACK_SECONDS',300,0),
+    ):
+        try:
+            result[name] = int(value if value is not None else os.getenv(env_name,str(default)))
+        except (ValueError,TypeError):
+            raise ValueError('invalid_batch_or_lookback') from None
+        if result[name] < minimum:
+            raise ValueError('invalid_batch_or_lookback')
+    return result
+
+
 def engines(demo_database=None):
     load_dotenv(Path(__file__).resolve().parents[1] / '.env')
     source = os.getenv('ETL_SOURCE_URL') or os.getenv('DATABASE_URL')

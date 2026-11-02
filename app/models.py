@@ -89,6 +89,7 @@ class Order(Base):
     __tablename__ = "orders"
     __table_args__ = (
         Index("idx_orders_customer_id", "customer_id"),
+        Index("ix_orders_updated_at", "updated_at"),
         {"schema": "ecommerce"},
     )
 
@@ -99,6 +100,9 @@ class Order(Base):
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("ecommerce.customers.id"))
     order_date: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=False), server_default=text("CURRENT_TIMESTAMP")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"), nullable=False
     )
     customer: Mapped[Customer | None] = relationship(back_populates="orders")
     items: Mapped[list[OrderItem]] = relationship(
@@ -113,6 +117,7 @@ class Order(Base):
 class OrderItem(Base):
     __tablename__ = "order_items"
     __table_args__ = (
+        Index("ix_order_items_updated_at", "updated_at"),
         CheckConstraint("price >= 0", name="order_items_price_check"),
         CheckConstraint("quantity > 0", name="order_items_quantity_check"),
         {"schema": "ecommerce"},
@@ -123,6 +128,9 @@ class OrderItem(Base):
     product_id: Mapped[int] = mapped_column(ForeignKey("ecommerce.products.id"), primary_key=True)
     quantity: Mapped[int] = mapped_column(Integer)
     price: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("CURRENT_TIMESTAMP"), nullable=False
+    )
     # PostgreSQL computes this value; do not assign it yourself.
     total_price: Mapped[int | None] = mapped_column(
         Integer, Computed("COALESCE(price, 0) * COALESCE(quantity, 0)", persisted=True)
