@@ -20,6 +20,9 @@ HTTP_REASONS = {
     "Order not found": ("order_not_found", "The requested order does not exist."),
     "Product has no valid price": ("invalid_product_price", "A product has no valid price; the order was rejected."),
     "Insufficient stock": ("insufficient_stock", "Available stock cannot fulfill the order; no order changes were committed."),
+    "Idempotency key already used with a different basket": (
+        "idempotency_key_conflict", "The retry key belongs to a different order basket; no changes were committed.",
+    ),
 }
 AUTH_REASONS = {
     "credentials_missing": "The request has no supported bearer credentials.",

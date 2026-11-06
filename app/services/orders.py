@@ -1,8 +1,11 @@
 """Order operations with explicit transaction ownership."""
+import hashlib
+import json
 import logging
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Customer, OrderItem, Product, Order
@@ -35,11 +38,38 @@ def get_customer_order(
 def create_order(
     order: OrderCreate,
     customer_id: int,
-    session :Session        
+    session: Session,
+    idempotency_key: str | None = None,
 ):
     try:
         if session.get(Customer, customer_id) is None:
             raise HTTPException(status_code=404, detail="Customer not found")
+        # Reserve the key before locking products. PostgreSQL waits for a competing
+        # insert to commit/roll back, so no process-local locks or pending records
+        # are needed. The reservation rolls back with stock and items on failure.
+        fingerprint = None
+        if idempotency_key is not None:
+            basket = sorted((item.product_id, item.quantity) for item in order.items)
+            fingerprint = hashlib.sha256(json.dumps(basket, separators=(",", ":")).encode()).hexdigest()
+        statement = insert(Order).values(
+            customer_id=customer_id,
+            idempotency_key=idempotency_key,
+            request_fingerprint=fingerprint,
+        )
+        if idempotency_key is not None:
+            statement = statement.on_conflict_do_nothing(constraint="orders_customer_idempotency_key")
+        order_id = session.scalar(statement.returning(Order.id))
+        if order_id is None:
+            existing = session.execute(
+                select(Order.id, Order.request_fingerprint).where(
+                    Order.customer_id == customer_id,
+                    Order.idempotency_key == idempotency_key,
+                )
+            ).one()
+            if existing.request_fingerprint != fingerprint:
+                raise HTTPException(status_code=409, detail="Idempotency key already used with a different basket")
+            session.commit()
+            return {"msg": "order created", "order_id": existing.id}
         # Acquire shared product locks in the same order for every request.
         # This reduces deadlocks when baskets list products in different orders.
         products = {
@@ -59,14 +89,12 @@ def create_order(
             if product.stock is None or product.stock < item.quantity:
                 raise HTTPException(status_code=409, detail="Insufficient stock")
 
-        new_order = Order(customer_id=customer_id)
-        session.add(new_order)
         for item in order.items:
             products[item.product_id].stock -= item.quantity
-        session.flush()  # Persist order and all stock changes before inserting items.
+        session.flush()  # Persist stock changes before inserting items.
         for item in order.items:
             session.add(OrderItem(
-                order_id=new_order.id,
+                order_id=order_id,
                 product_id=item.product_id,
                 quantity=item.quantity,
                 price=products[item.product_id].unit_price,
@@ -76,5 +104,5 @@ def create_order(
         session.rollback()
         raise
 
-    logger.info("order_created", extra={"order_id": new_order.id, "item_count": len(order.items)})
-    return {"msg": "order created", "order_id": new_order.id}
+    logger.info("order_created", extra={"order_id": order_id, "item_count": len(order.items)})
+    return {"msg": "order created", "order_id": order_id}

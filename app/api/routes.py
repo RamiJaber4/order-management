@@ -1,6 +1,6 @@
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
@@ -60,8 +60,12 @@ def add_product(product: ProductCreate, session: Session = Depends(get_db),
 
 @router.post('/orders', status_code=201, response_model=OrderCreatedResponse)
 def create_order(order: OrderCreate, session: Session = Depends(get_db),
-                 customer: Customer = Depends(get_current_customer)):
-    return orders.create_order(order, customer.id, session)
+                 customer: Customer = Depends(get_current_customer),
+                 idempotency_key: str | None = Header(
+                     default=None, min_length=1, max_length=255, pattern=r"^[!-~]+$",
+                     description="Reuse this key when retrying the same basket. Scoped to the current customer.",
+                 )):
+    return orders.create_order(order, customer.id, session, idempotency_key)
 
 @router.get('/products', response_model=list[ProductResponse])
 def list_products(

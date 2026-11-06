@@ -11,6 +11,25 @@ def test_migrations_match_models(pg_engine):
         command.check(migration_config(connection))
 
 
+def test_idempotency_migration_preserves_existing_orders(pg_engine):
+    with pg_engine.begin() as connection:
+        config = migration_config(connection)
+        command.downgrade(config, "0005_order_tracking")
+        order_id = connection.execute(text(
+            "INSERT INTO ecommerce.orders (notes) VALUES ('Legacy order') RETURNING id"
+        )).scalar_one()
+        command.upgrade(config, "head")
+        assert connection.execute(text(
+            "SELECT notes, idempotency_key, request_fingerprint FROM ecommerce.orders WHERE id=:id"
+        ), {"id": order_id}).one() == ("Legacy order", None, None)
+        command.downgrade(config, "0005_order_tracking")
+        assert connection.execute(text(
+            "SELECT notes FROM ecommerce.orders WHERE id=:id"
+        ), {"id": order_id}).scalar_one() == "Legacy order"
+        command.upgrade(config, "head")
+        command.check(config)
+
+
 def test_upgrade_downgrade_and_existing_customer_data(pg_engine):
     # Only the randomly named disposable test database is affected.
     with pg_engine.begin() as connection:

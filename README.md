@@ -89,7 +89,7 @@ Open **[Swagger UI](http://localhost:8000/docs)** or
 [OpenAPI JSON](http://localhost:8000/openapi.json).
 For an existing database, back it up and compare its schema with the migration
 history before upgrading. `alembic stamp` only records a revision; it does not
-validate or repair a schema. Revision `0005_order_tracking` is required by the
+validate or repair a schema. Revision `0006_order_idempotency` is required by the
 current API and sales ETL. Application startup does not run migrations.
 
 ## Run with Docker
@@ -161,6 +161,19 @@ private `.env` files or existing volumes, see [Testing](#testing).
 Ownership comes from the verified token; callers cannot submit a `customer_id`
 or their own item prices. New accounts default to the customer role; admin
 promotion is a separate operator command.
+
+For safe retries, send an `Idempotency-Key` header with `POST /orders` (for
+example, a UUID generated once per checkout). Reuse that key after a timeout or
+lost response. Keys accept 1-255 visible ASCII characters without spaces and are
+scoped to the authenticated customer. The same key and basket return the original
+`201` response and `order_id`, even if stock or prices have since changed. Item
+order does not matter. Reusing the key with different products or quantities
+returns `409`. Concurrent retries create one order and deduct stock once.
+
+The key is committed with the order and has no time-based expiry; it remains
+reserved while the order exists. Failed requests roll back the key so they can be
+retried. Requests without the header retain their existing behavior and create a
+new order on each successful call. Use a new key for a new checkout.
 
 ## API reference
 

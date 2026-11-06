@@ -90,6 +90,12 @@ class Order(Base):
     __table_args__ = (
         Index("idx_orders_customer_id", "customer_id"),
         Index("ix_orders_updated_at", "updated_at"),
+        UniqueConstraint("customer_id", "idempotency_key", name="orders_customer_idempotency_key"),
+        CheckConstraint(
+            "(idempotency_key IS NULL AND request_fingerprint IS NULL) OR "
+            "(idempotency_key IS NOT NULL AND request_fingerprint IS NOT NULL)",
+            name="orders_idempotency_pair_check",
+        ),
         {"schema": "ecommerce"},
     )
 
@@ -98,6 +104,8 @@ class Order(Base):
         server_default=text("nextval('ecommerce.orders_id_seq'::regclass)"),
     )
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("ecommerce.customers.id"))
+    idempotency_key: Mapped[str | None] = mapped_column(String(255))
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64))
     order_date: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=False), server_default=text("CURRENT_TIMESTAMP")
     )
