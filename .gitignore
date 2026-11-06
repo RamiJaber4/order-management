@@ -10,5 +10,6 @@ __pycache__/
 .test-postgres/
 tmp/
 output/
+/frontend/
 *.pem
 *.key
